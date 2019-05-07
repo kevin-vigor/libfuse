@@ -8,9 +8,9 @@
 /* This program does the mounting and unmounting of FUSE filesystems */
 
 #define _GNU_SOURCE /* for clone */
-#include <config.h>
-
+#include "config.h"
 #include "mount_util.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -428,7 +428,9 @@ static int unmount_fuse_locked(const char *mnt, int quiet, int lazy)
 		return -1;
 	}
 
+	drop_privs();
 	res = chdir_to_parent(copy, &last);
+	restore_privs();
 	if (res == -1)
 		goto out;
 
@@ -1016,20 +1018,25 @@ static int check_perm(const char **mntp, struct stat *stbuf, int *mountpoint_fd)
 		0x9123683E /* BTRFS_SUPER_MAGIC */,
 		0x00C36400 /* CEPH_SUPER_MAGIC */,
 		0xFF534D42 /* CIFS_MAGIC_NUMBER */,
-		0X00004D44 /* MSDOS_SUPER_MAGIC */,
 		0x0000F15F /* ECRYPTFS_SUPER_MAGIC */,
 		0x0000EF53 /* EXT[234]_SUPER_MAGIC */,
 		0xF2F52010 /* F2FS_SUPER_MAGIC */,
 		0x65735546 /* FUSE_SUPER_MAGIC */,
 		0x01161970 /* GFS2_MAGIC */,
-		0x3153464A /* JFS_SUPER_MAGIC */,
+		0x47504653 /* GPFS_SUPER_MAGIC */,
+		0x0000482b /* HFSPLUS_SUPER_MAGIC */,
 		0x000072B6 /* JFFS2_SUPER_MAGIC */,
+		0x3153464A /* JFS_SUPER_MAGIC */,
+		0x0BD00BD0 /* LL_SUPER_MAGIC */,
+		0X00004D44 /* MSDOS_SUPER_MAGIC */,
 		0x0000564C /* NCP_SUPER_MAGIC */,
 		0x00006969 /* NFS_SUPER_MAGIC */,
 		0x00003434 /* NILFS_SUPER_MAGIC */,
 		0x5346544E /* NTFS_SB_MAGIC */,
+		0x5346414f /* OPENAFS_SUPER_MAGIC */,
 		0x794C7630 /* OVERLAYFS_SUPER_MAGIC */,
 		0x52654973 /* REISERFS_SUPER_MAGIC */,
+		0xFE534D42 /* SMB2_SUPER_MAGIC */,
 		0x73717368 /* SQUASHFS_MAGIC */,
 		0x01021994 /* TMPFS_MAGIC */,
 		0x24051905 /* UBIFS_SUPER_MAGIC */,

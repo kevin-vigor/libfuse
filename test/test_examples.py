@@ -76,7 +76,7 @@ def test_hello(tmpdir, name, options, cmdline_builder):
             open(filename + 'does-not-exist', 'r+')
         assert exc_info.value.errno == errno.ENOENT
     except:
-        cleanup(mnt_dir)
+        cleanup(mount_process, mnt_dir)
         raise
     else:
         umount(mount_process, mnt_dir)
@@ -117,6 +117,7 @@ def test_passthrough(tmpdir, name, debug, capfd, writeback):
 
         tst_statvfs(work_dir)
         tst_readdir(src_dir, work_dir)
+        tst_readdir_big(src_dir, work_dir)
         tst_open_read(src_dir, work_dir)
         tst_open_write(src_dir, work_dir)
         tst_create(work_dir)
@@ -147,11 +148,65 @@ def test_passthrough(tmpdir, name, debug, capfd, writeback):
             syscall_test_cmd.append('-52')
         subprocess.check_call(syscall_test_cmd)
     except:
-        cleanup(mnt_dir)
+        cleanup(mount_process, mnt_dir)
         raise
     else:
         umount(mount_process, mnt_dir)
 
+@pytest.mark.parametrize("cache", (False, True))
+def test_passthrough_hp(tmpdir, cache):
+    mnt_dir = str(tmpdir.mkdir('mnt'))
+    src_dir = str(tmpdir.mkdir('src'))
+
+    cmdline = base_cmdline + \
+              [ pjoin(basename, 'example', 'passthrough_hp'),
+                src_dir, mnt_dir ]
+
+    if not cache:
+        cmdline.append('--nocache')
+        
+    mount_process = subprocess.Popen(cmdline)
+    try:
+        wait_for_mount(mount_process, mnt_dir)
+
+        tst_statvfs(mnt_dir)
+        tst_readdir(src_dir, mnt_dir)
+        tst_readdir_big(src_dir, mnt_dir)
+        tst_open_read(src_dir, mnt_dir)
+        tst_open_write(src_dir, mnt_dir)
+        tst_create(mnt_dir)
+        tst_passthrough(src_dir, mnt_dir)
+        tst_append(src_dir, mnt_dir)
+        tst_seek(src_dir, mnt_dir)
+        tst_mkdir(mnt_dir)
+        tst_rmdir(src_dir, mnt_dir)
+        tst_unlink(src_dir, mnt_dir)
+        tst_symlink(mnt_dir)
+        if os.getuid() == 0:
+            tst_chown(mnt_dir)
+
+        # Underlying fs may not have full nanosecond resolution
+        tst_utimens(mnt_dir, ns_tol=1000)
+
+        tst_link(mnt_dir)
+        tst_truncate_path(mnt_dir)
+        tst_truncate_fd(mnt_dir)
+        tst_open_unlink(mnt_dir)
+
+        # test_syscalls assumes that changes in source directory
+        # will be reflected immediately in mountpoint, so we
+        # can't use it.
+        if not cache:
+            syscall_test_cmd = [ os.path.join(basename, 'test', 'test_syscalls'),
+                             mnt_dir, ':' + src_dir ]
+            subprocess.check_call(syscall_test_cmd)
+    except:
+        cleanup(mount_process, mnt_dir)
+        raise
+    else:
+        umount(mount_process, mnt_dir)
+
+        
 @pytest.mark.skipif(fuse_proto < (7,11),
                     reason='not supported by running kernel')
 def test_ioctl(tmpdir):
@@ -177,7 +232,7 @@ def test_ioctl(tmpdir):
         with open(testfile, 'rb') as fh:
             assert fh.read()== b'foo'
     except:
-        cleanup(mnt_dir)
+        cleanup(mount_process, mnt_dir)
         raise
     else:
         umount(mount_process, mnt_dir)
@@ -193,7 +248,7 @@ def test_poll(tmpdir):
                   [ pjoin(basename, 'example', 'poll_client') ]
         subprocess.check_call(cmdline, cwd=mnt_dir)
     except:
-        cleanup(mnt_dir)
+        cleanup(mount_process, mnt_dir)
         raise
     else:
         umount(mount_process, mnt_dir)
@@ -217,7 +272,7 @@ def test_null(tmpdir):
         with open(mnt_file, 'wb') as fh:
             fh.write(b'whatever')
     except:
-        cleanup(mnt_file)
+        cleanup(mount_process, mnt_file)
         raise
     else:
         umount(mount_process, mnt_file)
@@ -253,7 +308,7 @@ def test_notify_inval_entry(tmpdir, notify):
         with pytest.raises(FileNotFoundError):
             os.stat(fname)
     except:
-        cleanup(mnt_dir)
+        cleanup(mount_process, mnt_dir)
         raise
     else:
         umount(mount_process, mnt_dir)
@@ -515,6 +570,31 @@ def tst_readdir(src_dir, mnt_dir):
     os.rmdir(subdir)
     os.rmdir(src_newdir)
 
+def tst_readdir_big(src_dir, mnt_dir):
+
+    # Add enough entries so that readdir needs to be called
+    # multiple times.
+    fnames = []
+    for i in range(500):
+        fname  = ('A rather long filename to make sure that we '
+                  'fill up the buffer - ' * 3) + str(i)
+        with open(pjoin(src_dir, fname), 'w') as fh:
+            fh.write('File %d' % i)
+        fnames.append(fname)
+
+    listdir_is = sorted(os.listdir(mnt_dir))
+    listdir_should = sorted(os.listdir(src_dir))
+    assert listdir_is == listdir_should
+
+    for fname in fnames:
+        stat_src = os.stat(pjoin(src_dir, fname))
+        stat_mnt = os.stat(pjoin(mnt_dir, fname))
+        assert stat_src.st_ino == stat_mnt.st_ino
+        assert stat_src.st_mtime == stat_mnt.st_mtime
+        assert stat_src.st_ctime == stat_mnt.st_ctime
+        assert stat_src.st_size == stat_mnt.st_size
+        os.unlink(pjoin(src_dir, fname))
+    
 def tst_truncate_path(mnt_dir):
     assert len(TEST_DATA) > 1024
 
